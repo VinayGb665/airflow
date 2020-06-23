@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 from unittest import mock
 
+import yaml
 from parameterized import parameterized
 
 from airflow.exceptions import AirflowException, AirflowFileParseException
@@ -103,6 +104,19 @@ class TestLoadVariables(unittest.TestCase):
             re.escape("File a.json was not found. Check the configuration of your Secrets backend."),
         ):
             local_filesystem.load_variables("a.json")
+
+    @parameterized.expand(
+        (
+            ({}, {}),
+            ({"KEY": "AAA"}, {"KEY": "AAA"}),
+            ({"KEY_A": "AAA", "KEY_B": "BBB"}, {"KEY_A": "AAA", "KEY_B": "BBB"}),
+            ({"KEY_A": "AAA", "KEY_B": "BBB"}, {"KEY_A": "AAA", "KEY_B": "BBB"}),
+        )
+    )
+    def test_yaml_file_should_load_variables(self, file_content, expected_variables):
+        with mock_local_file(yaml.dump(yaml.load(json.dumps(file_content)), default_flow_style=False)):
+            variables = local_filesystem.load_variables('a.yaml')
+            self.assertEqual(expected_variables, variables)
 
 
 class TestLoadConnection(unittest.TestCase):
@@ -192,6 +206,32 @@ class TestLoadConnection(unittest.TestCase):
             re.escape("File a.json was not found. Check the configuration of your Secrets backend."),
         ):
             local_filesystem.load_connections("a.json")
+
+    @parameterized.expand(
+        (
+            ({"CONN_ID": "mysql://host_1"}, {"CONN_ID": ["mysql://host_1"]}),
+            ({"CONN_ID": ["mysql://host_1"]}, {"CONN_ID": ["mysql://host_1"]}),
+            (
+                {"CONN_ID": ["mysql://host_1", "mysql://host_2"]},
+                {"CONN_ID": ["mysql://host_1", "mysql://host_2"]},
+            ),
+            ({"CONN_ID": {"uri": "mysql://host_1"}}, {"CONN_ID": ["mysql://host_1"]}),
+            ({"CONN_ID": [{"uri": "mysql://host_1"}]}, {"CONN_ID": ["mysql://host_1"]}),
+            (
+                {"CONN_ID": [{"uri": "mysql://host_1"}, {"uri": "mysql://host_2"}]},
+                {"CONN_ID": ["mysql://host_1", "mysql://host_2"]},
+            ),
+        )
+    )
+    def test_yaml_file_should_load_connection(self, file_content, expected_connection_uris):
+        with mock_local_file(yaml.dump(yaml.load(json.dumps(file_content)), default_flow_style=False)):
+            connections_by_conn_id = local_filesystem.load_connections("a.yaml")
+            connection_uris_by_conn_id = {
+                conn_id: [connection.get_uri() for connection in connections]
+                for conn_id, connections in connections_by_conn_id.items()
+            }
+
+            self.assertEqual(expected_connection_uris, connection_uris_by_conn_id)
 
 
 class TestLocalFileBackend(unittest.TestCase):
